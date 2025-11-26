@@ -1,100 +1,95 @@
 # leetcode-auto-populate
 
-Script to automatically populate LeetCode problem lists via GraphQL + Playwright.
+Automation script that takes a JSON config of list names -> LeetCode problem titles, resolves each title through LeetCode’s GraphQL API, and drives a real Chromium browser (Playwright) to add those problems to your custom lists.
 
-## What it does
+## Features
 
-- Takes a list of LeetCode problem titles.
-- Uses the public GraphQL API to resolve titles → slugs.
-- Uses Playwright to open LeetCode in a real browser and add those problems to a target list.
-- Logs which problems were found / skipped.
+- Deduplicates every title across all lists and resolves them to `titleSlug`s via GraphQL.
+- Stores all resolved slugs in `resolved_slugs.json` for auditing.
+- Uses a persistent Playwright profile so you stay logged in between runs.
+- Creates missing custom lists on the fly and skips titles that are already present.
+- Writes any problems that could not be added to `manual_fails.json` for manual follow-up.
 
 ## Requirements
 
 - Python 3.10+
-- `pip` + `virtualenv` (optional but recommended)
-- Playwright + browser binaries
+- `pip` (a virtualenv is recommended but optional)
+- Playwright plus browser binaries (`playwright install chromium`)
+- A LeetCode account you can log into via a normal browser session
 
-Install deps:
-
-```bash
-pip install -r requirements.txt
-playwright install
-If you’re using python -m venv venv, activate that first.
-```
-
-## Setup
-Clone the repo:
+## Installation
 
 ```bash
 git clone https://github.com/<your-username>/leetcode-auto-populate.git
 cd leetcode-auto-populate
+
+# optional but recommended
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+pip install -r requirements.txt
+playwright install chromium
 ```
 
-Create a .env (optional, if you want to store things like email/username):
+## Configuration
 
-```env
-LEETCODE_USERNAME=your_email_or_username
+Provide a JSON file that maps list names to arrays of human-readable problem titles. See `example_config.json` for a template:
+
+```json
+{
+  "Blind 75": [
+    "Two Sum",
+    "Best Time to Buy and Sell Stock"
+  ],
+  "Dynamic Programming": [
+    "Climbing Stairs",
+    "House Robber"
+  ]
+}
 ```
 
-Or just have the script prompt you interactively.
+Notes:
 
-Make sure you can log in to LeetCode in a normal browser first (no extra captchas / weird auth).
+- Titles are matched case-insensitively, but spelling must match LeetCode’s titles.
+- The loader enforces that every list maps to an array; any other structure raises an error.
+- Each unique title is resolved once even if it appears in multiple lists.
 
-## Usage
-Basic pattern (adjust to whatever args your script uses):
+## Running the script
 
 ```bash
-python main.py \
-  --titles-file titles.txt \
-  --list-name "NeetCode - Arrays & Hashing"
+python populate_lc_list.py path/to/your_config.json
 ```
 
-Example `titles.txt`:
+What to expect:
 
-```text
-Two Sum
-Group Anagrams
-Product of Array Except Self
-Word Ladder
-```
+1. The script validates the config, resolves all titles, and writes `resolved_slugs.json`.
+2. Playwright launches Chromium using the persistent profile in `leetcode_profile/`.
+3. When prompted (`press Enter to continue`), log into LeetCode in the opened browser (only needed once per profile) and hit Enter in the terminal.
+4. For every list:
+   - Missing lists are created automatically through the “Create a new list” dialog.
+   - Already-added problems are detected via the checkbox state and skipped.
+   - Failures (timeouts, selectors not found, slug lookup issues, etc.) are appended to `manual_fails.json`.
 
-Typical flags you might expose:
+When the run finishes you’ll see a summary of any titles that still need manual attention. If there were no failures the script prints a 🎉 and removes the need for manual edits.
 
---titles-file – path to a newline-separated list of problem titles.
+## Output files
 
---list-name – exact name of the LeetCode list to populate (must already exist).
+- `resolved_slugs.json` – All titles with the slug that was used (or `null` if not found).
+- `manual_fails.json` – Titles that could not be added automatically, with the reason.
+- `leetcode_profile/` – Playwright user data directory so you stay logged in between runs.
 
---dry-run – resolve slugs and print what would be added, but don’t open the browser.
+## How it works
 
---headless – run Playwright without opening a visible browser window.
+1. **GraphQL search** – Each title is sent to `https://leetcode.com/graphql` using the `questionList` query; the script prefers exact matches and falls back to the first result.
+2. **Browser automation** – Playwright opens each problem URL, clicks the star/list icon, creates the list if missing, and toggles the checkbox for the specified list.
+3. **Reporting** – Progress is printed to the terminal while JSON files capture successes and failures for later review.
 
-(Adjust this section to match the actual CLI in `main.py`.)
+## Tips & caveats
 
-## How it works (high level)
-### GraphQL search
-For each title, call LeetCode’s public GraphQL endpoint to find the best-matching titleSlug.
-
-### Browser automation
-Use Playwright to:
-
-- Log in to LeetCode.
-- Open each problem’s page.
-- Use the “Add to List” UI to add it to the specified list.
-
-### Reporting
-Print a summary of:
-
-- Titles successfully added
-- Titles not found / ambiguous
-- Any errors (network, login, etc.)
-
-## Notes / Caveats
-This is best-effort automation. If LeetCode changes their UI, selectors may need updates.
-
-GraphQL search is fuzzy; if a title is weird or misspelled, it might not resolve cleanly.
-
-Don’t hammer the API or the site; there’s a small delay between actions to be polite.
+- Keep an eye on the terminal while the browser runs; if LeetCode changes their UI, selector tweaks may be required.
+- There is a small delay between actions to avoid hammering the site, but you should still be courteous with the number of problems per run.
+- If you want to start fresh, delete `leetcode_profile/` and you’ll be prompted to log in again on the next run.
 
 ## License
-MIT
+
+MIT – see `LICENSE`.
